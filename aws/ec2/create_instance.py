@@ -19,7 +19,7 @@ session = boto3.Session(
 
     aws_access_key_id=cred["temp_access_key_id"],
 
-    aws_secret_access_key=cred["temp_access_key_id"],
+    aws_secret_access_key=cred["temp_secret_access_key"],
 
     aws_session_token=cred["temp_session_token"],
 
