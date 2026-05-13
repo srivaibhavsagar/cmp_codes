@@ -38,7 +38,7 @@ resp = ec2.run_instances(
         "Tags": [
             {"Key": "Name", "Value": instance_name},
             {"Key": "ManagedBy", "Value": "CMP"},
-            {"Key": "Group", "Value": params.get("group")},
+            {"Key": "Group", "Value": params.get("group_name")},
         ],
     }],
 )
