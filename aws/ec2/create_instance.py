@@ -14,7 +14,6 @@ instance_name = params.get("instance_name", "cmp-instance")
 instance_type = params.get("instance_type", "t3.micro")
 ami_id = params.get("ami_id") or "ami-0c55b159cbfafe1f0"
 
-print(cred["temp_access_key_id"],cred["temp_access_key_id"],cred["temp_session_token"])
 session = boto3.Session(
 
     aws_access_key_id=cred["temp_access_key_id"],
