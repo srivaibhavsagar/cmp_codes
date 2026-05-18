@@ -59,7 +59,7 @@ resource "aws_instance" "main" {
   key_name      = var.key_name
 
   tags = {
-    Name      = "cmp-managed-${sequence}"
+    Name      = "cmp-managed-${var.sequence}"
     ManagedBy = "CMP"
     Createdfrom = "terraform"
   }
