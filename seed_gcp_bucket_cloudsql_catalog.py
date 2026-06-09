@@ -11,7 +11,7 @@ GCP cloud credential — the original service account key is never exposed.
 
 Usage:
     python seed_gcp_bucket_cloudsql_catalog.py --url https://your-cmp.example.com --token <admin_jwt>
-    python3 seed_gcp_bucket_cloudsql_catalog.py --url https://cmp-app.srivaibhavsagar.com/ --token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNTk0M2U4NS02ZjMzLTQ4ZDAtYTcwYy00NzI2ZTM4MjUxZmMiLCJ0ZW5hbnRfaWQiOiJkZWZhdWx0IiwianRpIjoiZGNlNTM1MWItOTllNS00ZGU3LWJlZjctYjU5YmFlMTkxYThjIiwiZXhwIjoxNzg4NzM3NDk0LCJ0b2tlbl90eXBlIjoiYXBpIn0.e9n21HjwSCj0Z98c0HGmm0mGMOXB6FtC4ZM-qjc1TdQ
+    python3 seed_gcp_bucket_cloudsql_catalog.py --url https://cmp-app.srivaibhavsagar.com/ --token fsdfsd
     
     # Or with environment variables:
     export CMP_URL=http://localhost:8001
