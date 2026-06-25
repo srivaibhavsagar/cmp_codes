@@ -229,7 +229,10 @@ import sys
 try:
     from azure.identity import ClientSecretCredential
     from azure.mgmt.storage import StorageManagementClient
-    from azure.mgmt.resource import ResourceManagementClient
+    try:
+        from azure.mgmt.resource import ResourceManagementClient
+    except ImportError:
+        from azure.mgmt.resource.resources import ResourceManagementClient
 except ImportError:
     print("ERROR: azure-identity, azure-mgmt-storage, azure-mgmt-resource required")
     sys.exit(1)
@@ -352,7 +355,10 @@ import sys
 try:
     from azure.identity import ClientSecretCredential
     from azure.mgmt.sql import SqlManagementClient
-    from azure.mgmt.resource import ResourceManagementClient
+    try:
+        from azure.mgmt.resource import ResourceManagementClient
+    except ImportError:
+        from azure.mgmt.resource.resources import ResourceManagementClient
 except ImportError:
     print("ERROR: azure-identity, azure-mgmt-sql, azure-mgmt-resource required")
     sys.exit(1)

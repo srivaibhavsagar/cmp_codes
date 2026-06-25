@@ -661,6 +661,16 @@ def create_catalog(client: CMPClient, flow_id: str, name: str, description: str,
         result = client.post("/catalog", payload)
         catalog_id = result["catalog_id"]
         print(f"  ✓ Catalog created: {catalog_id}")
+
+    # Verify form_schema was persisted
+    saved = client.get(f"/catalog/{catalog_id}")
+    field_count = len((saved.get("form_schema") or {}).get("fields", []))
+    if field_count == len(AWS_EC2_FORM_FIELDS):
+        print(f"  ✓ Verified: {field_count} form fields persisted")
+    else:
+        print(f"  ⚠ WARNING: Expected {len(AWS_EC2_FORM_FIELDS)} form fields, got {field_count}")
+        print(f"    form_schema in response: {json.dumps(saved.get('form_schema'), indent=2)[:500]}")
+
     return catalog_id
 
 

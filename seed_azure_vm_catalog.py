@@ -178,7 +178,10 @@ try:
     from azure.identity import ClientSecretCredential
     from azure.mgmt.compute import ComputeManagementClient
     from azure.mgmt.network import NetworkManagementClient
-    from azure.mgmt.resource import ResourceManagementClient
+    try:
+        from azure.mgmt.resource import ResourceManagementClient
+    except ImportError:
+        from azure.mgmt.resource.resources import ResourceManagementClient
 except ImportError:
     print("ERROR: azure-identity, azure-mgmt-compute, azure-mgmt-network, azure-mgmt-resource required")
     print("Install: pip install azure-identity azure-mgmt-compute azure-mgmt-network azure-mgmt-resource")
@@ -288,37 +291,37 @@ def main():
     print(f"[Azure] Creating VM '{vm_name}'...")
     vm_params = {
         "location": location,
-        "hardware_profile": {"vm_size": vm_size},
-        "storage_profile": {
-            "image_reference": {
+        "hardwareProfile": {"vmSize": vm_size},
+        "storageProfile": {
+            "imageReference": {
                 "publisher": image_publisher,
                 "offer": image_offer,
                 "sku": image_sku,
                 "version": "latest",
             },
-            "os_disk": {
-                "create_option": "FromImage",
-                "managed_disk": {"storage_account_type": os_disk_type},
-                "disk_size_gb": os_disk_size_gb,
+            "osDisk": {
+                "createOption": "FromImage",
+                "managedDisk": {"storageAccountType": os_disk_type},
+                "diskSizeGB": os_disk_size_gb,
             },
         },
-        "os_profile": {
-            "computer_name": vm_name,
-            "admin_username": admin_username,
-            "linux_configuration": {
-                "disable_password_authentication": True,
+        "osProfile": {
+            "computerName": vm_name,
+            "adminUsername": admin_username,
+            "linuxConfiguration": {
+                "disablePasswordAuthentication": True,
                 "ssh": {
-                    "public_keys": [
+                    "publicKeys": [
                         {
                             "path": f"/home/{admin_username}/.ssh/authorized_keys",
-                            "key_data": ssh_public_key,
+                            "keyData": ssh_public_key,
                         }
                     ]
                 },
             },
         },
-        "network_profile": {
-            "network_interfaces": [{"id": nic.id}]
+        "networkProfile": {
+            "networkInterfaces": [{"id": nic.id}]
         },
         "tags": {"Name": vm_name, "ManagedBy": "cmp", "ProvisionedVia": "native-task"},
     }
