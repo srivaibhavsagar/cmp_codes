@@ -24,6 +24,12 @@ variable "key_name" {
   default = null
 }
 
+variable "cmp_user_data" {
+  description = "Pre-built cloud-init user_data from CMP (SSH keys + agent install). Auto-injected by CMP."
+  type        = string
+  default     = ""
+}
+
 variable "security_group_ids" {
   type    = list(string)
   default = []
@@ -83,6 +89,8 @@ provider "aws" {
 locals {
   install_agent = var.cmp_agent_token != "" && var.cmp_agent_install_url != ""
 
+  # Prefer cmp_user_data (pre-built cloud-init from CMP with SSH keys + agent).
+  # Fall back to building agent-only user_data from individual cmp_agent_* variables.
   agent_user_data = local.install_agent ? join("\n", [
     "#!/bin/bash",
     "# Wait for network and metadata service",
@@ -95,6 +103,10 @@ locals {
     "# Install CMP monitoring agent",
     "curl -sSL ${var.cmp_agent_install_url} | bash -s -- --endpoint ${var.cmp_agent_endpoint} --token ${var.cmp_agent_token} --resource-id $INSTANCE_ID --tenant-id ${var.cmp_agent_tenant_id}",
   ]) : ""
+
+  # Use cmp_user_data if provided (includes SSH keys + agent + custom commands),
+  # otherwise fall back to agent-only user_data
+  effective_user_data = var.cmp_user_data != "" ? var.cmp_user_data : local.agent_user_data
 }
 
 resource "aws_instance" "vm" {
@@ -106,7 +118,7 @@ resource "aws_instance" "vm" {
 
   associate_public_ip_address = var.assign_public_ip
 
-  user_data = local.agent_user_data != "" ? local.agent_user_data : null
+  user_data = local.effective_user_data != "" ? local.effective_user_data : null
 
   root_block_device {
     volume_size = var.root_volume_size_gb

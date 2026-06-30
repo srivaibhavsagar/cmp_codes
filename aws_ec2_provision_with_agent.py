@@ -16,6 +16,7 @@ CMP injects context as:
     cmp["agent"]["token"]                       — one-time agent registration token
     cmp["agent"]["endpoint"]                    — CMP agent API endpoint
     cmp["agent"]["install_url"]                 — agent install script URL
+    cmp["user_data"]                            — pre-built cloud-init script (SSH keys + agent install)
     params["instance_name"]                     — form data / step inputs
 """
 import json
@@ -119,12 +120,16 @@ def main():
     ec2_client = session.client("ec2")
 
     # Build user_data with CMP agent installation
-    # We use the instance_name as a placeholder since we don't have instance_id yet.
-    # The agent will register with whatever resource_id we provide here.
-    # After launch, we could update it, but instance_name works for matching.
+    # Option 1 (preferred): Use the pre-built user_data from CMP context
+    #   This combines SSH keys + agent install into a single cloud-init script.
+    # Option 2 (custom): Build manually from cmp["agent"] for fine-grained control.
     user_data = ""
     if install_agent:
-        user_data = build_user_data(instance_name)
+        # Try pre-built user_data first (includes SSH keys + agent install)
+        user_data = cmp.get("user_data", "")
+        if not user_data:
+            # Fallback: build manually from agent context
+            user_data = build_user_data(instance_name)
         if user_data:
             print("[AWS] User data includes CMP Agent installation script")
 
