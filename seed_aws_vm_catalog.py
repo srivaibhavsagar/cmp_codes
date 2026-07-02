@@ -50,6 +50,14 @@ resource "aws_instance" "vm" {
 
   associate_public_ip_address = var.assign_public_ip
 
+  # user_data: Linux → cloud-init YAML, Windows → PowerShell script
+  # Injected automatically by CMP via cmp_user_data / cmp_user_data_windows
+  user_data = var.os_type == "windows" ? (
+    var.user_data_windows != "" ? var.user_data_windows : null
+  ) : (
+    var.user_data != "" ? var.user_data : null
+  )
+
   root_block_device {
     volume_size = var.root_volume_size_gb
     volume_type = var.root_volume_type
@@ -112,7 +120,10 @@ CMP injects context as:
   cmp["credential"]["aws_access_key_id"]      — temp or original key
   cmp["credential"]["aws_secret_access_key"]  — temp or original secret
   cmp["credential"]["aws_session_token"]      — STS session token (if assumed role)
+  cmp["user_data"]                            — Linux cloud-init YAML (SSH keys + CMP agent)
+  cmp["user_data_windows"]                    — Windows PowerShell script (CMP agent)
   params["instance_name"]                     — form data / step inputs
+  params["os_type"]                           — "linux" (default) or "windows"
 """
 import json
 import sys
@@ -143,6 +154,27 @@ def main():
     root_volume_size = int(params.get("root_volume_size_gb", "20"))
     root_volume_type = params.get("root_volume_type", "gp3")
     assign_public_ip = str(params.get("assign_public_ip", "true")).lower() in ("true", "1", "yes")
+    os_type = str(params.get("os_type", "linux")).lower()
+    is_windows = os_type == "windows"
+
+    # Select correct user_data based on OS type.
+    # Linux  → cmp["user_data"]         = cloud-init YAML (SSH keys + CMP agent)
+    # Windows → cmp["user_data_windows"] = PowerShell script (CMP agent)
+    # EC2 UserData accepts both — cloud-init handles Linux, EC2Launch handles Windows.
+    if is_windows:
+        user_data = cmp.get("user_data_windows", "")
+        if user_data:
+            print(f"[CMP] user_data_windows provided ({len(user_data)} bytes) — Windows PowerShell startup script")
+        else:
+            print("[CMP] WARNING: cmp['user_data_windows'] is empty for Windows instance.")
+            print("[CMP]   Check admin Settings → Provisioning tab.")
+    else:
+        user_data = cmp.get("user_data", "")
+        if user_data:
+            print(f"[CMP] user_data provided ({len(user_data)} bytes) — Linux cloud-init script")
+        else:
+            print("[CMP] WARNING: cmp['user_data'] is empty.")
+            print("[CMP]   Check admin Settings → Provisioning tab.")
 
     if not aws_access_key or not aws_secret_key:
         print("ERROR: No AWS credentials in credential context.")
@@ -158,7 +190,9 @@ def main():
         sys.exit(1)
 
     print(f"[AWS] Provisioning EC2 instance '{instance_name}' in {region}")
-    print(f"[AWS] Type: {instance_type}, AMI: {ami_id}, Volume: {root_volume_size}GB {root_volume_type}")
+    print(f"[AWS] OS: {os_type}, Type: {instance_type}, AMI: {ami_id}, Volume: {root_volume_size}GB {root_volume_type}")
+    if user_data:
+        print(f"[AWS] CMP {'Windows PowerShell' if is_windows else 'cloud-init'} startup script will be applied")
 
     # Create boto3 session with temp credentials
     session_kwargs = {
@@ -173,6 +207,9 @@ def main():
     ec2 = session.resource("ec2")
     ec2_client = session.client("ec2")
 
+    # Windows root device is /dev/sda1; Linux is /dev/xvda
+    root_device = "/dev/sda1" if is_windows else "/dev/xvda"
+
     # Build instance parameters
     run_kwargs = {
         "ImageId": ami_id,
@@ -181,7 +218,7 @@ def main():
         "MaxCount": 1,
         "BlockDeviceMappings": [
             {
-                "DeviceName": "/dev/xvda",
+                "DeviceName": root_device,
                 "Ebs": {
                     "VolumeSize": root_volume_size,
                     "VolumeType": root_volume_type,
@@ -210,6 +247,10 @@ def main():
         run_kwargs["SubnetId"] = subnet_id
     if key_name:
         run_kwargs["KeyName"] = key_name
+
+    # Pass user_data to EC2 UserData — cloud-init handles Linux, EC2Launch handles Windows
+    if user_data:
+        run_kwargs["UserData"] = user_data
 
     # Network interface for public IP control
     if subnet_id and assign_public_ip:
@@ -449,6 +490,9 @@ def create_terraform_template(client: CMPClient) -> str:
             {"name": "key_name", "type": "string", "description": "SSH key pair name", "default": ""},
             {"name": "assign_public_ip", "type": "bool", "description": "Assign public IP", "default": True},
             {"name": "tags", "type": "map", "description": "Additional tags", "default": {}},
+            {"name": "os_type", "type": "string", "description": "OS type: linux or windows (controls user_data format)", "default": "linux"},
+            {"name": "user_data", "type": "string", "description": "Linux cloud-init script (SSH keys + CMP agent). Auto-injected via cmp_user_data.", "default": ""},
+            {"name": "user_data_windows", "type": "string", "description": "Windows PowerShell startup script (CMP agent). Auto-injected via cmp_user_data_windows.", "default": ""},
         ],
         "output_definitions": [
             {"name": "instance_id", "description": "EC2 instance ID"},
@@ -542,6 +586,9 @@ def create_terraform_workflow(client: CMPClient, template_id: str) -> str:
                     "subnet_id": "{{form.subnet_id}}",
                     "key_name": "{{form.key_name}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
+                    "os_type": "{{form.os_type}}",
+                    "user_data": "{{cmp_user_data}}",
+                    "user_data_windows": "{{cmp_user_data_windows}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",
@@ -586,6 +633,7 @@ def create_native_workflow(client: CMPClient, task_id: str) -> str:
                     "subnet_id": "{{form.subnet_id}}",
                     "key_name": "{{form.key_name}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
+                    "os_type": "{{form.os_type}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",

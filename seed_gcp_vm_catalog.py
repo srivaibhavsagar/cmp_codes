@@ -11,9 +11,6 @@ GCP cloud credential — the original service account key is never exposed.
 
 Usage:
     python seed_gcp_vm_catalog.py --url https://your-cmp.example.com --token <admin_jwt>
-    python3 seed_gcp_vm_catalog.py --url https://cmp-app.srivaibhavsagar.com/ --token -qjc1TdQ
-    
-
 
     # Or with environment variables:
     export CMP_URL=http://localhost:8001
@@ -71,9 +68,13 @@ resource "google_compute_instance" "vm" {
 
   labels = var.labels
 
-  metadata = {
-    enable-oslogin = "TRUE"
-  }
+  metadata = merge(
+    {
+      "enable-oslogin" = "TRUE"  # Linux only — ignored on Windows images
+    },
+    var.startup_script != "" ? { "startup-script" = var.startup_script } : {},
+    var.windows_startup_script != "" ? { "windows-startup-script-ps1" = var.windows_startup_script } : {}
+  )
 }
 
 output "instance_id" {
@@ -117,7 +118,17 @@ key is never visible to this task.
 CMP injects context as:
   cmp["credential"]["temp_access_token"]  — 1-hour OAuth2 token
   cmp["credential"]["project_id"]         — GCP project ID (from credential_ctx)
+  cmp["user_data"]                        — ready-to-use startup script, format
+                                            auto-selected by CMP based on provider:
+                                            GCP → plain #!/bin/bash script
+                                            AWS/Azure → #cloud-config YAML
+                                            Always use cmp["user_data"] regardless
+                                            of cloud — no provider-specific key needed.
   params["instance_name"]                 — form data / step inputs
+
+The cmp["user_data"] bash script is passed as the instance's startup-script
+metadata. GCP's guest agent executes it on first boot, installing the CMP
+agent automatically — no SSH or manual steps required.
 """
 import json
 import sys
@@ -138,10 +149,10 @@ def main():
     # Access CMP-injected context
     # cmp dict is injected by the task runner wrapper at the top of this file
     credential = cmp.get("credential") or {}
-    
+
     token = credential.get("temp_access_token", "")
     project_id = params.get("GCP_PROJECT_ID") or credential.get("project_id", "")
-    
+
     # Read inputs from params (merged form_data + step inputs)
     zone = params.get("GCP_ZONE") or params.get("zone", "us-central1-a")
     instance_name = params.get("INSTANCE_NAME") or params.get("instance_name", "")
@@ -151,6 +162,36 @@ def main():
     network = params.get("NETWORK") or params.get("network", "default")
     subnetwork = params.get("SUBNETWORK") or params.get("subnetwork", "default")
     assign_public_ip = str(params.get("ASSIGN_PUBLIC_IP", params.get("assign_public_ip", "true"))).lower() in ("true", "1", "yes")
+
+    # CMP provides a ready-to-use startup script via cmp["user_data"].
+    # The format is automatically correct for the cloud provider:
+    #   GCP         → plain #!/bin/bash script (GCP guest agent runs startup-script directly)
+    #   AWS / Azure → #cloud-config YAML (both run cloud-init)
+    # Task authors always use cmp["user_data"] — no provider-specific key needed.
+    user_data = cmp.get("user_data", "")
+    if user_data:
+        print(f"[CMP] user_data provided ({len(user_data)} bytes) — will be set as startup-script")
+    else:
+        print("[CMP] WARNING: cmp['user_data'] is empty. Check admin Settings → Provisioning tab.")
+        # Fallback: build a minimal startup script from cmp["agent"] if available
+        agent = cmp.get("agent", {})
+        if agent.get("token"):
+            print("[CMP] Falling back to cmp['agent'] for startup-script")
+            tenant_id = cmp.get("execution", {}).get("tenant_id", "default")
+            user_data = (
+                "#!/bin/bash\n"
+                "# CMP Agent install — fallback (cmp['user_data'] was empty)\n"
+                "sleep 10\n"
+                "# GCP: use numeric instance ID — matches how CMP stores GCP resources (uses instance.id not instance.name)\n"
+                'CMP_RESOURCE_ID=$(curl -s --connect-timeout 5 --retry 3 -H "Metadata-Flavor: Google" \\\n'
+                '  "http://metadata.google.internal/computeMetadata/v1/instance/id" 2>/dev/null || true)\n'
+                f'if [ -z "$CMP_RESOURCE_ID" ]; then CMP_RESOURCE_ID="{instance_name}"; fi\n'
+                f'curl -sSL "{agent["install_url"]}" | bash -s -- \\\n'
+                f'  --endpoint "{agent["endpoint"]}" \\\n'
+                f'  --token "{agent["token"]}" \\\n'
+                '  --resource-id "$CMP_RESOURCE_ID" \\\n'
+                f'  --tenant-id "{tenant_id}"\n'
+            )
 
     if not token:
         print("ERROR: No temp_access_token in credential context. GCP credential may not have generated a temp token.")
@@ -165,6 +206,8 @@ def main():
 
     print(f"[GCP] Provisioning VM '{instance_name}' in {project_id}/{zone}")
     print(f"[GCP] Machine type: {machine_type}, Image: {boot_image}, Disk: {disk_size_gb}GB")
+    if user_data:
+        print("[GCP] CMP startup-script will be applied on first boot (SSH keys + agent)")
 
     # Authenticate with short-lived token
     creds = google.oauth2.credentials.Credentials(token=token)
@@ -176,6 +219,28 @@ def main():
         source_image = f"projects/{image_parts[0]}/global/images/family/{image_parts[1]}"
     else:
         source_image = f"projects/debian-cloud/global/images/family/{boot_image}"
+
+    # Detect Windows image — GCP Windows images use a different metadata key
+    is_windows_image = "windows" in boot_image.lower()
+
+    # Build metadata items
+    metadata_items = [
+        {"key": "enable-oslogin", "value": "TRUE"},  # Linux only — safe to set, ignored on Windows
+    ]
+
+    if is_windows_image:
+        # GCP Windows: windows-startup-script-ps1 is executed by the GCE Windows agent
+        win_data = cmp.get("user_data_windows", "")
+        if win_data:
+            metadata_items.append({"key": "windows-startup-script-ps1", "value": win_data})
+            print(f"[CMP] user_data_windows provided ({len(win_data)} bytes) — set as windows-startup-script-ps1")
+        else:
+            print("[CMP] WARNING: cmp['user_data_windows'] is empty for Windows image.")
+    else:
+        # GCP Linux: startup-script is executed directly as a shell script
+        # by the Google Cloud guest agent on every boot.
+        if user_data:
+            metadata_items.append({"key": "startup-script", "value": user_data})
 
     instance_body = {
         "name": instance_name,
@@ -197,9 +262,7 @@ def main():
             }
         ],
         "metadata": {
-            "items": [
-                {"key": "enable-oslogin", "value": "TRUE"},
-            ]
+            "items": metadata_items,
         },
         "labels": {
             "managed-by": "cmp",
@@ -511,6 +574,8 @@ def create_terraform_template(client: CMPClient) -> str:
             {"name": "subnetwork", "type": "string", "description": "Subnetwork", "default": "default"},
             {"name": "assign_public_ip", "type": "bool", "description": "Assign external IP", "default": True},
             {"name": "labels", "type": "map", "description": "Labels to apply", "default": {}},
+            {"name": "startup_script", "type": "string", "description": "Plain bash startup-script for Linux (SSH keys + CMP agent). Injected automatically via cmp[\"user_data\"].", "default": ""},
+            {"name": "windows_startup_script", "type": "string", "description": "PowerShell startup script for Windows (CMP agent). Injected automatically via cmp[\"user_data_windows\"].", "default": ""},
         ],
         "output_definitions": [
             {"name": "instance_id", "description": "Instance ID"},
@@ -604,6 +669,8 @@ def create_terraform_workflow(client: CMPClient, template_id: str) -> str:
                     "network": "{{form.network}}",
                     "subnetwork": "{{form.subnetwork}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
+                    "startup_script": "{{cmp_user_data}}",
+                    "windows_startup_script": "{{cmp_user_data_windows}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",
