@@ -29,14 +29,85 @@ import requests
 # ─────────────────────────────────────────────────────────────────────────────
 
 AWS_EC2_HCL = r'''
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
+# ─── Variables ────────────────────────────────────────────────────────────────
+
+variable "region" {
+  type        = string
+  description = "AWS region"
+  default     = "us-east-1"
 }
+
+variable "instance_name" {
+  type        = string
+  description = "Instance name tag"
+}
+
+variable "instance_type" {
+  type        = string
+  description = "EC2 instance type"
+  default     = "t3.micro"
+}
+
+variable "ami_id" {
+  type        = string
+  description = "AMI ID"
+}
+
+variable "root_volume_size_gb" {
+  type        = number
+  description = "Root volume size (GB)"
+  default     = 20
+}
+
+variable "root_volume_type" {
+  type        = string
+  description = "Root volume type"
+  default     = "gp3"
+}
+
+variable "subnet_id" {
+  type        = string
+  description = "VPC subnet ID"
+  default     = ""
+}
+
+variable "key_name" {
+  type        = string
+  description = "SSH key pair name"
+  default     = ""
+}
+
+variable "assign_public_ip" {
+  type        = bool
+  description = "Assign public IP"
+  default     = true
+}
+
+variable "tags" {
+  type        = map(string)
+  description = "Additional tags"
+  default     = {}
+}
+
+variable "os_type" {
+  type        = string
+  description = "OS type: linux or windows (controls user_data format)"
+  default     = "linux"
+}
+
+variable "user_data" {
+  type        = string
+  description = "Linux cloud-init script (SSH keys + CMP agent). Auto-injected via cmp_user_data."
+  default     = ""
+}
+
+variable "user_data_windows" {
+  type        = string
+  description = "Windows PowerShell startup script (CMP agent). Auto-injected via cmp_user_data_windows."
+  default     = ""
+}
+
+# ─── Provider ─────────────────────────────────────────────────────────────────
 
 provider "aws" {
   region = var.region
@@ -411,6 +482,18 @@ AWS_EC2_FORM_FIELDS = [
         "required": False,
         "default": True,
         "description": "Assign a public IP address for internet access",
+    },
+    {
+        "field_id": "os_type",
+        "label": "OS Type",
+        "type": "select",
+        "required": True,
+        "default": "linux",
+        "options": [
+            {"label": "Linux", "value": "linux"},
+            {"label": "Windows", "value": "windows"},
+        ],
+        "description": "Operating system type (controls which startup script format is injected)",
     },
 ]
 

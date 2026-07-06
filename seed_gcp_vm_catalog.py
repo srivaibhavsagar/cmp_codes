@@ -29,13 +29,86 @@ import requests
 # ─────────────────────────────────────────────────────────────────────────────
 
 GCP_COMPUTE_HCL = r'''
-terraform {
-  required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 5.0"
-    }
-  }
+variable "project_id" {
+  type        = string
+  description = "GCP Project ID"
+}
+
+variable "region" {
+  type        = string
+  description = "GCP region"
+  default     = "us-central1"
+}
+
+variable "zone" {
+  type        = string
+  description = "GCP zone"
+  default     = "us-central1-a"
+}
+
+variable "instance_name" {
+  type        = string
+  description = "VM instance name"
+}
+
+variable "machine_type" {
+  type        = string
+  description = "Machine type"
+  default     = "e2-medium"
+}
+
+variable "boot_image" {
+  type        = string
+  description = "Boot disk image"
+  default     = "debian-cloud/debian-12"
+}
+
+variable "disk_size_gb" {
+  type        = number
+  description = "Boot disk size (GB)"
+  default     = 20
+}
+
+variable "network" {
+  type        = string
+  description = "VPC network"
+  default     = "default"
+}
+
+variable "subnetwork" {
+  type        = string
+  description = "Subnetwork"
+  default     = "default"
+}
+
+variable "assign_public_ip" {
+  type        = bool
+  description = "Assign external IP"
+  default     = true
+}
+
+variable "labels" {
+  type        = map(string)
+  description = "Labels to apply"
+  default     = {}
+}
+
+variable "startup_script" {
+  type        = string
+  description = "Plain bash startup-script for Linux (SSH keys + CMP agent). Injected automatically via cmp_user_data."
+  default     = ""
+}
+
+variable "windows_startup_script" {
+  type        = string
+  description = "PowerShell startup script for Windows (CMP agent). Injected automatically via cmp_user_data_windows."
+  default     = ""
+}
+
+variable "os_type" {
+  type        = string
+  description = "OS type: linux or windows (controls user_data format)"
+  default     = "linux"
 }
 
 provider "google" {
@@ -487,6 +560,18 @@ GCP_VM_FORM_FIELDS = [
         "default": True,
         "description": "Assign an external IP for internet access",
     },
+    {
+        "field_id": "os_type",
+        "label": "OS Type",
+        "type": "select",
+        "required": True,
+        "default": "linux",
+        "options": [
+            {"label": "Linux", "value": "linux"},
+            {"label": "Windows", "value": "windows"},
+        ],
+        "description": "Operating system type (controls which startup script format is injected)",
+    },
 ]
 
 
@@ -576,6 +661,7 @@ def create_terraform_template(client: CMPClient) -> str:
             {"name": "labels", "type": "map", "description": "Labels to apply", "default": {}},
             {"name": "startup_script", "type": "string", "description": "Plain bash startup-script for Linux (SSH keys + CMP agent). Injected automatically via cmp[\"user_data\"].", "default": ""},
             {"name": "windows_startup_script", "type": "string", "description": "PowerShell startup script for Windows (CMP agent). Injected automatically via cmp[\"user_data_windows\"].", "default": ""},
+            {"name": "os_type", "type": "string", "description": "OS type: linux or windows (controls user_data format)", "default": "linux"},
         ],
         "output_definitions": [
             {"name": "instance_id", "description": "Instance ID"},
@@ -671,6 +757,7 @@ def create_terraform_workflow(client: CMPClient, template_id: str) -> str:
                     "assign_public_ip": "{{form.assign_public_ip}}",
                     "startup_script": "{{cmp_user_data}}",
                     "windows_startup_script": "{{cmp_user_data_windows}}",
+                    "os_type": "{{form.os_type}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",
@@ -714,6 +801,7 @@ def create_native_workflow(client: CMPClient, task_id: str) -> str:
                     "network": "{{form.network}}",
                     "subnetwork": "{{form.subnetwork}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
+                    "os_type": "{{form.os_type}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",

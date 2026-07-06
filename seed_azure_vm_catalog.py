@@ -29,13 +29,108 @@ import requests
 # ─────────────────────────────────────────────────────────────────────────────
 
 AZURE_VM_HCL = r'''
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.0"
-    }
-  }
+variable "subscription_id" {
+  type        = string
+  description = "Azure subscription ID"
+}
+
+variable "resource_group_name" {
+  type        = string
+  description = "Resource group name"
+}
+
+variable "create_resource_group" {
+  type        = bool
+  description = "Create resource group if not exists"
+  default     = true
+}
+
+variable "location" {
+  type        = string
+  description = "Azure region"
+  default     = "eastus"
+}
+
+variable "vm_name" {
+  type        = string
+  description = "VM name"
+}
+
+variable "vm_size" {
+  type        = string
+  description = "VM size"
+  default     = "Standard_B1s"
+}
+
+variable "image_publisher" {
+  type        = string
+  description = "Image publisher"
+  default     = "Canonical"
+}
+
+variable "image_offer" {
+  type        = string
+  description = "Image offer"
+  default     = "0001-com-ubuntu-server-jammy"
+}
+
+variable "image_sku" {
+  type        = string
+  description = "Image SKU"
+  default     = "22_04-lts-gen2"
+}
+
+variable "os_disk_size_gb" {
+  type        = number
+  description = "OS disk size (GB)"
+  default     = 30
+}
+
+variable "os_disk_type" {
+  type        = string
+  description = "OS disk type"
+  default     = "StandardSSD_LRS"
+}
+
+variable "admin_username" {
+  type        = string
+  description = "Admin username"
+  default     = "azureuser"
+}
+
+variable "ssh_public_key" {
+  type        = string
+  description = "SSH public key"
+}
+
+variable "create_vnet" {
+  type        = bool
+  description = "Create new VNet"
+  default     = true
+}
+
+variable "subnet_id" {
+  type        = string
+  description = "Existing subnet ID (if not creating VNet)"
+  default     = ""
+}
+
+variable "assign_public_ip" {
+  type        = bool
+  description = "Assign public IP"
+  default     = true
+}
+
+variable "custom_data" {
+  type        = string
+  description = "Linux cloud-init script (SSH keys + CMP agent). Auto-injected via cmp_user_data."
+  default     = ""
+}
+
+variable "os_type" {
+  type        = string
+  description = "OS type: linux or windows (controls user_data format)"
+  default     = "linux"
 }
 
 provider "azurerm" {
@@ -372,13 +467,109 @@ main()
 # ─────────────────────────────────────────────────────────────────────────────
 
 AZURE_WINDOWS_VM_HCL = r'''
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.0"
-    }
-  }
+variable "subscription_id" {
+  type        = string
+  description = "Azure subscription ID"
+}
+
+variable "resource_group_name" {
+  type        = string
+  description = "Resource group name"
+}
+
+variable "create_resource_group" {
+  type        = bool
+  description = "Create resource group if not exists"
+  default     = true
+}
+
+variable "location" {
+  type        = string
+  description = "Azure region"
+  default     = "eastus"
+}
+
+variable "vm_name" {
+  type        = string
+  description = "VM name (max 15 chars)"
+}
+
+variable "vm_size" {
+  type        = string
+  description = "VM size"
+  default     = "Standard_B2s"
+}
+
+variable "image_publisher" {
+  type        = string
+  description = "Image publisher"
+  default     = "MicrosoftWindowsServer"
+}
+
+variable "image_offer" {
+  type        = string
+  description = "Image offer"
+  default     = "WindowsServer"
+}
+
+variable "image_sku" {
+  type        = string
+  description = "Image SKU"
+  default     = "2022-datacenter-azure-edition"
+}
+
+variable "os_disk_size_gb" {
+  type        = number
+  description = "OS disk size (GB, min 128)"
+  default     = 128
+}
+
+variable "os_disk_type" {
+  type        = string
+  description = "OS disk type"
+  default     = "StandardSSD_LRS"
+}
+
+variable "admin_username" {
+  type        = string
+  description = "Windows admin username"
+  default     = "cmpAdmin"
+}
+
+variable "admin_password" {
+  type        = string
+  description = "Windows admin password"
+  sensitive   = true
+}
+
+variable "create_vnet" {
+  type        = bool
+  description = "Create new VNet"
+  default     = true
+}
+
+variable "subnet_id" {
+  type        = string
+  description = "Existing subnet ID (if not creating VNet)"
+  default     = ""
+}
+
+variable "assign_public_ip" {
+  type        = bool
+  description = "Assign public IP"
+  default     = true
+}
+
+variable "custom_data" {
+  type        = string
+  description = "PowerShell startup script (CMP agent). Auto-injected via cmp_user_data_windows."
+  default     = ""
+}
+
+variable "os_type" {
+  type        = string
+  description = "OS type: linux or windows (controls user_data format)"
+  default     = "windows"
 }
 
 provider "azurerm" {
@@ -821,6 +1012,18 @@ AZURE_WINDOWS_VM_FORM_FIELDS = [
         "default": True,
         "description": "Assign a public IP address for remote access (RDP port 3389)",
     },
+    {
+        "field_id": "os_type",
+        "label": "OS Type",
+        "type": "select",
+        "required": True,
+        "default": "windows",
+        "options": [
+            {"label": "Linux", "value": "linux"},
+            {"label": "Windows", "value": "windows"},
+        ],
+        "description": "Operating system type (controls which startup script format is injected)",
+    },
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -976,6 +1179,18 @@ AZURE_VM_FORM_FIELDS = [
         "default": True,
         "description": "Assign a public IP address for internet access",
     },
+    {
+        "field_id": "os_type",
+        "label": "OS Type",
+        "type": "select",
+        "required": True,
+        "default": "linux",
+        "options": [
+            {"label": "Linux", "value": "linux"},
+            {"label": "Windows", "value": "windows"},
+        ],
+        "description": "Operating system type (controls which startup script format is injected)",
+    },
 ]
 
 
@@ -1059,6 +1274,7 @@ def create_windows_terraform_template(client: CMPClient) -> str:
             {"name": "subnet_id", "type": "string", "description": "Existing subnet ID (if not creating VNet)", "default": ""},
             {"name": "assign_public_ip", "type": "bool", "description": "Assign public IP", "default": True},
             {"name": "custom_data", "type": "string", "description": "PowerShell startup script (CMP agent). Auto-injected via cmp_user_data_windows.", "default": ""},
+            {"name": "os_type", "type": "string", "description": "OS type: linux or windows (controls user_data format)", "default": "windows"},
         ],
         "output_definitions": [
             {"name": "vm_id", "description": "VM resource ID"},
@@ -1157,6 +1373,7 @@ def create_windows_terraform_workflow(client: CMPClient, template_id: str) -> st
                     "admin_password": "{{form.admin_password}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
                     "custom_data": "{{cmp_user_data_windows}}",
+                    "os_type": "{{form.os_type}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",
@@ -1203,6 +1420,7 @@ def create_windows_native_workflow(client: CMPClient, task_id: str) -> str:
                     "admin_username": "{{form.admin_username}}",
                     "admin_password": "{{form.admin_password}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
+                    "os_type": "{{form.os_type}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",
@@ -1280,6 +1498,7 @@ def create_terraform_template(client: CMPClient) -> str:
             {"name": "subnet_id", "type": "string", "description": "Existing subnet ID (if not creating VNet)", "default": ""},
             {"name": "assign_public_ip", "type": "bool", "description": "Assign public IP", "default": True},
             {"name": "custom_data", "type": "string", "description": "Linux cloud-init script (SSH keys + CMP agent). Auto-injected via cmp_user_data.", "default": ""},
+            {"name": "os_type", "type": "string", "description": "OS type: linux or windows (controls user_data format)", "default": "linux"},
         ],
         "output_definitions": [
             {"name": "vm_id", "description": "VM resource ID"},
@@ -1378,6 +1597,7 @@ def create_terraform_workflow(client: CMPClient, template_id: str) -> str:
                     "ssh_public_key": "{{form.ssh_public_key}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
                     "custom_data": "{{cmp_user_data}}",
+                    "os_type": "{{form.os_type}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",
@@ -1424,6 +1644,7 @@ def create_native_workflow(client: CMPClient, task_id: str) -> str:
                     "admin_username": "{{form.admin_username}}",
                     "ssh_public_key": "{{form.ssh_public_key}}",
                     "assign_public_ip": "{{form.assign_public_ip}}",
+                    "os_type": "{{form.os_type}}",
                 },
                 "depends_on": [],
                 "on_failure": "stop",
